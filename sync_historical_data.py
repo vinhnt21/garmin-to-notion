@@ -176,32 +176,45 @@ def get_all_activities(garmin, max_activities=1000, batch_size=100):
     
 def are_dates_equal(date1, date2):
     """
-    Compare two ISO format date strings by parsing them into datetime objects.
-    Handles differences like 'Z' vs '+00:00'.
+    Compare two date strings by parsing them into datetime objects.
+    Handles 'Z', '+00:00', and space vs 'T' separators.
+    Assumes naive datetimes are UTC.
     """
     if not date1 or not date2:
         return False
     try:
-        # Normalize Z to +00:00 to ensure compatibility
-        d1 = datetime.fromisoformat(date1.replace('Z', '+00:00'))
-        d2 = datetime.fromisoformat(date2.replace('Z', '+00:00'))
+        # Normalize format to be compatible with fromisoformat
+        # Replace Z with +00:00
+        d1_str = date1.replace('Z', '+00:00')
+        d2_str = date2.replace('Z', '+00:00')
+        
+        d1 = datetime.fromisoformat(d1_str)
+        d2 = datetime.fromisoformat(d2_str)
+        
+        # If naive, assume UTC (since we work with GMT fields)
+        if d1.tzinfo is None:
+            d1 = d1.replace(tzinfo=timezone.utc)
+        if d2.tzinfo is None:
+            d2 = d2.replace(tzinfo=timezone.utc)
+            
         return d1 == d2
     except (ValueError, TypeError):
-        # Fallback to exact string match if parsing fails
+        # Fallback to exact string match
         return date1 == date2
 
 def activity_exists(client, database_id, activity_date):
     """
     Check if an activity already exists in the Notion database using the exact start time.
-    Activity Name and Type are intentionally ignored to handle renames/re-classifications.
     """
     # Query for activities on the specific date (YYYY-MM-DD)
-    # Note: We query by date to limit results, then check exact time in memory
+    # Use array slicing [:10] to safely get YYYY-MM-DD regardless of "T" or " " separator
+    query_date = activity_date[:10]
+    
     query = client.databases.query(
         database_id=database_id,
         filter={
             "property": "Date",
-            "date": {"equals": activity_date.split('T')[0]}  # Filter by day
+            "date": {"equals": query_date}
         }
     )
     
