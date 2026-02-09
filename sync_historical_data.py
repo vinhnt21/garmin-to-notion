@@ -174,27 +174,31 @@ def get_all_activities(garmin, max_activities=1000, batch_size=100):
     
     return all_activities
 
-def activity_exists(client, database_id, activity_date, activity_type, activity_name):
-    """Check if activity exists in Notion."""
-    if isinstance(activity_type, tuple):
-        main_type, _ = activity_type
-    else:
-        main_type = activity_type[0] if isinstance(activity_type, (list, tuple)) else activity_type
-    
-    lookup_type = "Stretching" if "stretch" in activity_name.lower() else main_type
-    
+def activity_exists(client, database_id, activity_date):
+    """
+    Check if an activity already exists in the Notion database using the exact start time.
+    Activity Name and Type are intentionally ignored to handle renames/re-classifications.
+    """
+    # Query for activities on the specific date (YYYY-MM-DD)
+    # Note: We query by date to limit results, then check exact time in memory
     query = client.databases.query(
         database_id=database_id,
         filter={
-            "and": [
-                {"property": "Date", "date": {"equals": activity_date.split('T')[0]}},
-                {"property": "Activity Type", "select": {"equals": lookup_type}},
-                {"property": "Activity Name", "title": {"equals": activity_name}}
-            ]
+            "property": "Date",
+            "date": {"equals": activity_date.split('T')[0]}  # Filter by day
         }
     )
-    results = query['results']
-    return results[0] if results else None
+    
+    # Check for exact start time match
+    for page in query.get('results', []):
+        try:
+            page_date = page['properties']['Date']['date']['start']
+            if page_date == activity_date:
+                return page
+        except (KeyError, TypeError):
+            continue
+            
+    return None
 
 def create_activity(client, database_id, activity):
     """Create activity in Notion."""
@@ -250,7 +254,7 @@ def sync_activities(garmin, client, database_id, max_activities):
             activity_name
         )
         
-        if not activity_exists(client, database_id, activity_date, activity_type, activity_name):
+        if not activity_exists(client, database_id, activity_date):
             try:
                 create_activity(client, database_id, activity)
                 created += 1

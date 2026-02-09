@@ -107,40 +107,40 @@ def format_pace(average_speed):
     else:
         return ""
     
-def activity_exists(client, database_id, activity_date, activity_type, activity_name):
-
-    # Check if an activity already exists in the Notion database and return it if found.
-
-    # Handle the activity_type which is now a tuple
-    if isinstance(activity_type, tuple):
-        main_type, _ = activity_type
-    else:
-        main_type = activity_type[0] if isinstance(activity_type, (list, tuple)) else activity_type
-    
-    # Determine the correct activity type for the lookup
-    lookup_type = "Stretching" if "stretch" in activity_name.lower() else main_type
-    
+def activity_exists(client, database_id, activity_date):
+    """
+    Check if an activity already exists in the Notion database using the exact start time.
+    Activity Name and Type are intentionally ignored to handle renames/re-classifications.
+    """
+    # Query for activities on the specific date (YYYY-MM-DD)
+    # Note: We query by date to limit results, then check exact time in memory
     query = client.databases.query(
         database_id=database_id,
         filter={
-            "and": [
-                {"property": "Date", "date": {"equals": activity_date.split('T')[0]}},
-                {"property": "Activity Type", "select": {"equals": lookup_type}},
-                {"property": "Activity Name", "title": {"equals": activity_name}}
-            ]
+            "property": "Date",
+            "date": {"equals": activity_date.split('T')[0]}  # Filter by day
         }
     )
-    results = query['results']
-    return results[0] if results else None
+    
+    # Check for exact start time match
+    for page in query.get('results', []):
+        try:
+            page_date = page['properties']['Date']['date']['start']
+            if page_date == activity_date:
+                return page
+        except (KeyError, TypeError):
+            continue
+            
+    return None
 
 
 def activity_needs_update(existing_activity, new_activity):
     existing_props = existing_activity['properties']
     
-    activity_name = new_activity.get('activityName', '').lower()
+    activity_name_lower = new_activity.get('activityName', '').lower()
     activity_type, activity_subtype = format_activity_type(
         new_activity.get('activityType', {}).get('typeKey', 'Unknown'),
-        activity_name
+        activity_name_lower
     )
     
     # Check if 'Subactivity Type' property exists
@@ -165,6 +165,7 @@ def activity_needs_update(existing_activity, new_activity):
         existing_props['PR']['checkbox'] != new_activity.get('pr', False) or
         existing_props['Fav']['checkbox'] != new_activity.get('favorite', False) or
         existing_props['Activity Type']['select']['name'] != activity_type or
+        existing_props['Activity Name']['title'][0]['text']['content'] != format_entertainment(new_activity.get('activityName', 'Unnamed Activity')) or
         (has_subactivity and existing_props['Subactivity Type']['select']['name'] != activity_subtype) or
         (not has_subactivity)  # If the property doesn't exist, we need an update
     )
@@ -226,6 +227,7 @@ def update_activity(client, existing_activity, new_activity):
     
     properties = {
         "Activity Type": {"select": {"name": activity_type}},
+        "Activity Name": {"title": [{"text": {"content": format_entertainment(activity_name)}}]},
         "Subactivity Type": {"select": {"name": activity_subtype}},
         "Distance (km)": {"number": round(new_activity.get('distance', 0) / 1000, 2)},
         "Duration (min)": {"number": round(new_activity.get('duration', 0) / 60, 2)},
@@ -279,7 +281,7 @@ def main():
         )
         
         # Check if activity already exists in Notion
-        existing_activity = activity_exists(client, database_id, activity_date, activity_type, activity_name)
+        existing_activity = activity_exists(client, database_id, activity_date)
         
         if existing_activity:
             if activity_needs_update(existing_activity, activity):
