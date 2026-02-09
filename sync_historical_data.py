@@ -173,6 +173,22 @@ def get_all_activities(garmin, max_activities=1000, batch_size=100):
             break
     
     return all_activities
+    
+def are_dates_equal(date1, date2):
+    """
+    Compare two ISO format date strings by parsing them into datetime objects.
+    Handles differences like 'Z' vs '+00:00'.
+    """
+    if not date1 or not date2:
+        return False
+    try:
+        # Normalize Z to +00:00 to ensure compatibility
+        d1 = datetime.fromisoformat(date1.replace('Z', '+00:00'))
+        d2 = datetime.fromisoformat(date2.replace('Z', '+00:00'))
+        return d1 == d2
+    except (ValueError, TypeError):
+        # Fallback to exact string match if parsing fails
+        return date1 == date2
 
 def activity_exists(client, database_id, activity_date):
     """
@@ -193,7 +209,7 @@ def activity_exists(client, database_id, activity_date):
     for page in query.get('results', []):
         try:
             page_date = page['properties']['Date']['date']['start']
-            if page_date == activity_date:
+            if are_dates_equal(page_date, activity_date):
                 return page
         except (KeyError, TypeError):
             continue
